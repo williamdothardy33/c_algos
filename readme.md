@@ -1,0 +1,1 @@
+to run code create object files if code is spread over multiple files with `cc -c [file name].c` for each file the program is spread over. then have c compiler link the object files into an executable with `cc -o [project file name] [file name 1].o...[file name n].o`
