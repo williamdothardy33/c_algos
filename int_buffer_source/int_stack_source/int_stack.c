@@ -1,7 +1,7 @@
 #include "int_stack.h"
 
-void push(int_buf *stack, int c) {
-    append(stack, c);
+void push(int_buf *stack, int n) {
+    append(stack, n);
 }
 
 int *pop(int_buf *stack) {
