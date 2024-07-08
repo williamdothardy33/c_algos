@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 int index_of_unpaired(char *s, int s_length) {
-    int_buf *stack = create_int_buf();
+    int_buf *stack = create_int_buf(0);
     char *current = s;
     int offset = 0;
     while (offset < s_length) {
@@ -36,7 +36,7 @@ int max_pairs(char *s, int s_length) {
     char *current = s;
     int offset = 0;
     int count = 0;
-    int_buf *stack = create_int_buf();
+    int_buf *stack = create_int_buf(0);
     while (offset < s_length) {
         char c = *(current + offset);
         if (c == ')') {
@@ -62,7 +62,7 @@ int max_pairs_length(char *s, int s_length) {
 int max_interval(char *s, int s_length) {
     char *current = s;
     int offset = 0;
-    int_buf *stack = create_int_buf();
+    int_buf *stack = create_int_buf(0);
     int min_opening = s_length;
     int max_closing = -1;
     while (offset < s_length) {
@@ -94,7 +94,7 @@ int max_interval(char *s, int s_length) {
 }
 
 int main(void) {
-    int_buf *stack = create_int_buf();
+    int_buf *stack = create_int_buf(0);
     push(stack, 1);
     push(stack, 2);
     push(stack, 3);
