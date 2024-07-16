@@ -8,7 +8,7 @@ int index_of_unpaired(char *s, int s_length) {
     while (offset < s_length) {
         char c = *(current + offset);
         if (c == ')') {
-            if (!is_empty(stack)) {
+            if (not_empty(stack)) {
                 pop(stack);
             }
             else {
@@ -21,7 +21,7 @@ int index_of_unpaired(char *s, int s_length) {
         offset += 1;
     }
 
-    if (!is_empty(stack)) {
+    if (not_empty(stack)) {
         int error_offset = pop(stack);
         return error_offset;
     }
@@ -40,7 +40,7 @@ int max_pairs(char *s, int s_length) {
     while (offset < s_length) {
         char c = *(current + offset);
         if (c == ')') {
-            if (!is_empty(stack)) {
+            if (not_empty(stack)) {
                 pop(stack);
                 count++;
             }
@@ -68,7 +68,7 @@ int max_interval(char *s, int s_length) {
     while (offset < s_length) {
         char c = *(current + offset);
         if (c == ')') {
-            if (!is_empty(stack)) {
+            if (not_empty(stack)) {
                 int opening_offset = pop(stack);
                 if (opening_offset < min_opening) {
                     min_opening = opening_offset;
@@ -102,7 +102,7 @@ int main(void) {
     push(stack, 5);
     push(stack, 6);
 
-    while (!is_empty(stack)) {
+    while (not_empty(stack)) {
         int next = pop(stack);
         printf("the next element is: %d\n", next);
     }

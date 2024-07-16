@@ -46,11 +46,11 @@ int pop(int_stack *stack) {
     }
 }
 
-int is_empty(int_stack *stack) {
+int not_empty(int_stack *stack) {
     if (stack->out_offset == -1 && stack->in_offset == 1) {
-        return 1;
+        return 0;
     }
     else {
-        return 0;
+        return 1;
     }
 }
