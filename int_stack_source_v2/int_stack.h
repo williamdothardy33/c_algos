@@ -13,3 +13,4 @@ int_stack *create_int_stack();
 void push(int_stack *stack, int data);
 int pop(int_stack *stack);
 int not_empty(int_stack *stack);
+void show_stack(int_stack *stack);
