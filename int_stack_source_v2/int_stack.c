@@ -1,5 +1,5 @@
-#include "int_stack.h"
 #include <stdlib.h>
+#include "int_stack.h"
 
 int_stack *create_int_stack() {
     int_stack *stack = malloc(sizeof(int_stack));
@@ -53,4 +53,19 @@ int not_empty(int_stack *stack) {
     else {
         return 1;
     }
+}
+
+void show_stack(int_stack *stack) {
+    int start = stack->out_offset;
+    printf("[");
+    while (start >= 1) {
+        if (start == 1) {
+            printf("%d", stack->underlying[start]);
+        }
+        else {
+            printf("%d, ", stack->underlying[start]);
+        }
+        start--;
+    }
+    printf("]\n");
 }
