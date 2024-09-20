@@ -1,8 +1,7 @@
 #include "int_graph.h"
+#include <stdint.h>
 #include <stdlib.h>
-#include <time.h>
 #include "../int_queue_source/int_queue.h"
-#include "../int_stack_source_v2/int_stack.h"
 
 int terminate_search;
 int push_count;
@@ -13,13 +12,18 @@ int bipartite;
 int num_branches[MAX_VERTICES + 1];
 int stack_indicies[MAX_VERTICES + 1];
 int earliest_returns[MAX_VERTICES + 1];
+int recursive_steps[MAX_VERTICES + 1];
 int discovered[MAX_VERTICES + 1], processed[MAX_VERTICES + 1], parents[MAX_VERTICES + 1];
+int_stack *required_by; //top always required by remaining in the stack
+edge_pair edges[MAX_VERTICES + 1];
+int in_offset;
 
 void setup_cut_node_search(int_graph *graph) {
     for (int i = 1; i <= graph->num_vertices; i++) {
         stack_indicies[i] = graph->num_vertices + 1;
         earliest_returns[i] = graph->num_vertices + 1;
         num_branches[i] = 0;
+
     }
 }
 
@@ -81,12 +85,26 @@ void setup_search(int_graph *graph) {
     }
 }
 
-edge_type edge_type_from(int from, int to, int discovered[], int processed[], int parents[]) {
+edge_type edge_type_from(int from, int to) {
     if (!discovered[to] || parents[to] == from) {
-        return TREE;
+        return TREE; 
     }
     else if (discovered[to] && !processed[to]) {
-        return BACK;
+        return BACK; //!processed[to] means "to" is still on the stack which means "from" must be a descendent of "to"
+                    //since parent edges aren't processed "to" must be a direct ancestor that is not "from's" parent 
+    }
+    else if (processed[to] && stack_indicies[to] > stack_indicies[from]) {
+        return FORWARD; //reached "to" in a directed graph and had to return to 
+                        //"from" (the first return with additional outgoing edges that happen
+                        //to go to "to") because reached a dead end at "to" or at one of it's descendents ("to" or 
+                        //one of it's descendents doesn't have outgoing links)
+                        // "to" started and finished processing after "from" via "one of from's descendents
+    }
+    else if (processed[to] && recursive_steps[to] < recursive_steps[from]){
+        return CROSS; //recursive_steps[to] < recursive_steps[from] implies "to" was discovered before "from", which implies "from"
+                    //cannot be a "direct" ancestor of "from" in the dfs tree. processed[to] implies all outgoing edges from "to" and
+                    //it descendents where processed before "from" was discovered. this implies that "from" lies on a different subtree than
+                    //"to"
     }
     else {
         printf("cannot classify edge\n");
@@ -103,8 +121,12 @@ void show_vertex_after(int vertex) {
     printf("finished processing vertex: %d\n", vertex);
     printf("\n");
 }
+
+void show_edge(int from, int to) {
+    printf("the edge (%d, %d) is being processed\n", from, to);
+}
 void show_edge_type(int from, int to) {
-    edge_type type = edge_type_from(from, to, discovered, processed, parents);
+    edge_type type = edge_type_from(from, to);
     char *result;
     switch (type) {
         case TREE:
@@ -112,6 +134,12 @@ void show_edge_type(int from, int to) {
             break;
         case BACK:
             result = "BACK";
+            break;
+        case FORWARD:
+            result = "FORWARD";
+            break;
+        case CROSS:
+            result = "CROSS";
             break;
         default:
             result = " ";
@@ -266,6 +294,35 @@ void dfs_1(int_graph *graph, int start, void (*process_before)(int), void (*proc
     processed[start] = 1;
 }
 
+void dfs_weighted(int_graph *graph, int start, void (*process_before)(int), void (*process_edge)(int, int, int), void (*process_after)(int)) {
+    terminate_search = 0;
+    discovered[start] = 1;
+    process_before(start);
+    int_edge *edges = graph->vertices[start];
+    int neighbor;
+    int weight;
+    
+    while (edges != NULL && !terminate_search) {
+        neighbor = edges->to;
+        weight = edges->weight;
+        if (!discovered[neighbor]) {
+            parents[neighbor] = start;
+            process_edge(start, neighbor, weight);
+            dfs_weighted(graph, neighbor, process_before, process_edge, process_after);
+        }
+        else if (!processed[neighbor] && parents[start] != neighbor || graph->is_directed) {
+            process_edge(start, neighbor, weight);
+        }
+        edges = edges->next;
+    }
+    process_after(start);
+    processed[start] = 1;
+}
+
+void find_path_bfs(int origin, int current, int child) {
+    find_path(origin, current, child, parents);
+}
+
 void find_path(int origin, int current, int child, int parents[]) {
     if (current == origin) {
         if (child == -1) {
@@ -321,6 +378,47 @@ int_graph *from_file(FILE *fp, int is_directed) {
     }
     
     return graph;
+}
+
+adjacency_matrix *create_adjacency_matrix() {
+    adjacency_matrix *matrix = malloc(sizeof(adjacency_matrix));
+    return matrix;
+}
+
+
+adjacency_matrix *from_file_1(FILE *fp, int is_directed) {
+    int num_vertices;
+    int num_edges;
+    int from;
+    int to;
+    int weight;
+    
+    fscanf(fp, "%d %d", &num_vertices, &num_edges);
+    adjacency_matrix *matrix = create_adjacency_matrix();
+    matrix->num_vertices = num_vertices;
+    for (int i = 1; i <= matrix->num_vertices; i++) {
+        for (int j = 1; j <= matrix->num_vertices; j++) {
+            matrix->edge_weights[i][j] = INT32_MAX;
+        }
+    }
+    
+    int_graph *graph = create_int_graph(num_vertices, is_directed);
+
+    while (fscanf(fp, "%d %d %d", &from, &to, &weight) != EOF) {
+        matrix->edge_weights[from][to] = weight;
+    }
+    
+    return matrix;
+}
+
+void show_matrix(adjacency_matrix *matrix) {
+    for (int i = 1; i <= matrix->num_vertices; i++) {
+        for (int j = 1; j <= matrix->num_vertices; j++) {
+            if (matrix->edge_weights[i][j] != INT32_MAX) {
+                printf("the edge (%d, %d) has weight %d\n", i, j, matrix->edge_weights[i][j]);
+            }
+        }
+    }
 }
 
 int sum_degree(int *degrees, int num_vertices) {
@@ -412,19 +510,23 @@ void show_cycle(int from, int to) {
     }
 }
 
-void set_stack_level() {
+void set_stack_level(int_graph *graph) {
     push_count = 0;
     pop_count = 0;
     last_push_index = -1;
+    for (int i = 1; i <= graph->num_vertices; i++) {
+        recursive_steps[i] = 0;
+
+    }
 }
 
 void stack_level_before(int from) {
-    push_count++;
-    printf("the vertex %d is being processed in frame: %d\n",from, push_count);
+    last_push_index++;
+    printf("the vertex %d is being processed in frame: %d\n",from, last_push_index);
 }
 
 void stack_level_after(int from) {
-    push_count--;
+    last_push_index--;
     pop_count++;
     printf("the vertex %d is finished processing after %d pops from the call stack\n", from, pop_count);
 }
@@ -436,7 +538,7 @@ void visit_node(int from) {
 }
 
 void process_branch(int from, int to) {
-    edge_type branch_type = edge_type_from(from, to, discovered, processed, parents);
+    edge_type branch_type = edge_type_from(from, to);
     switch (branch_type) {
         case TREE:
             num_branches[from]++;
@@ -446,7 +548,11 @@ void process_branch(int from, int to) {
                 earliest_returns[from] = to;
             }
             break;
-    }
+        case FORWARD:
+            break;
+        case CROSS:
+            break;
+        }
 }
 
 void leave_node(int from) {
@@ -472,3 +578,399 @@ void leave_node(int from) {
     }
 
 }
+
+void add_dependents_of(int required) {
+    push(required_by, required);
+}
+
+void proper_dependents(int from, int to) {
+    show_edge_type(from, to);
+    if (edge_type_from(from, to) == BACK) {
+        printf("warning graph is not a DAG and cannot be sorted!\n");
+    }
+}
+
+
+
+void do_nothing(int from, int to) {}
+void do_nothing_1(int from) {}
+
+
+void setup_topo(int_graph *graph) {
+    required_by = create_int_stack();
+}
+
+void topo_sort(int_graph *graph) {
+    setup_topo(graph);
+    for (int i = 1; i <= graph->num_vertices; i++) {
+        if (!discovered[i]) {
+            dfs_1(graph, i, process_node, proper_dependents, add_dependents_of);
+        }
+    }
+}
+
+void show_topo() {
+    show_stack(required_by);
+}
+
+void process_node(int from) {
+    visit_node(from);
+    push_count++;
+    recursive_steps[from] =  push_count;
+}
+
+int_graph *transpose(int_graph* graph) {
+    int_graph *graph_transposed = create_int_graph(graph->num_vertices, 1);
+    graph_transposed->is_directed = 1;
+    int_edge *edges;
+    int to;
+    int weight;
+    for (int from = 1; from <= graph->num_vertices; from++) {
+        edges = graph->vertices[from];
+        while (edges != NULL) {
+            to = edges->to;
+            weight = edges->weight;
+            insert_edge(graph_transposed, to, from, weight, 1);
+            edges = edges->next;
+        }
+    }
+    return graph_transposed;
+}
+
+/**
+the strategy for partitioning a directed graph into a set of strongly connected components is:
+1. order the vertices in the reverse order in which they are processed using a stack. we can be assured
+that for any vertex at the top of the stack there is a path from that vertex to any vertex below it in the stack.
+2. construct the transpose graph and perform a dfs starting with vertex at the top of the previously constructed stack.
+we can be assured that the first iteration will have the root of the dfs tree at the top of the stack for which there is a path
+to every vertex below it in the stack. the dfs search on the transpose graph will find all vertices that have paths leading back to
+the root in the original graph. (the rationale behind this is if there is a path from the vertex at the top of the stack to any other vertex in the transpose
+graph, which have the edges reversed, then there is a path from that vertex to the vertex at the top of the stack in the original graph)
+any vertex in this set of vertices will have a path to any other vertex in the set by traveling to the
+root and from there traveling to the other vertex. so they are strongly connected. We need to be assured that the first vertex in the stack
+that can't find a path to the root can find a path to the remaining vertices that haven't been discovered by the previous dfs search
+(we would like to know that graph can be partitioned by connected components, I think this is obvious but it must not have been when I wrote this)
+that in turn can discover this vertex. We can be assured that the set of vertices that have a path to this next vertex will lie below 
+it on the stack
+because if it didn't it would lie above it on the stack in the group of vertices that have path's to the root. therefore there is a path
+from the vertex to the set of vertices for which there is a path to the vertex since the set of vertices lie below the vertex in the stack.
+this argument is can be repeated until the stack is empty giving a full partition of strong connected components of a directed graph.
+the code basically says from those the vertex "from" can find, find every vertex "to" that can find "from"
+ */
+
+void process_connected_after(int from) {
+    printf("the vertex %d for the tree edge (%d, %d) is processed\n", from, parents[from], from);
+    add_dependents_of(from);
+}
+
+
+
+
+
+
+
+void strongly_connected(int_graph *graph) {
+    setup_search(graph);
+    setup_topo(graph);
+    for (int start = 1; start <= graph->num_vertices; start++) {
+        if (!discovered[start]) {
+            dfs_1(graph, start, show_vertex_before, do_nothing, process_connected_after);
+        }
+    }
+
+    int_graph *graph_transposed = transpose(graph);
+    setup_search(graph_transposed);
+    int component = 0;
+    while (not_empty(required_by)) {
+        int required = pop(required_by);
+        if (!discovered[required]) {
+            component++;
+            printf("strongly connected component %d of original graph with start of %d\n", component, required);
+            dfs_1(graph_transposed, required, show_vertex_before, show_edge, show_vertex_after);
+            printf("\n");
+        }
+    }
+
+    
+}
+
+int prims_algo(int_graph *graph, int start) {
+    int is_tree_vertex[MAX_VERTICES + 1];
+    int weights[MAX_VERTICES + 1];
+    int parents[MAX_VERTICES + 1];
+
+    int total_weight = 0;
+    int min_weight = 0;
+    int current;
+    int_edge *edges;
+    int dest_vertex;
+    for (int i = 1; i <= graph->num_vertices; i++) {
+        weights[i] = INT32_MAX;
+        is_tree_vertex[i] = 0;
+        parents[i] = -1;
+    }
+
+    current = start;
+    while (!is_tree_vertex[current]) {
+        total_weight += min_weight;
+        is_tree_vertex[current] = 1;
+        printf("the edge (%d, %d) is an edge in the minimum spanning tree\n", parents[current], current);
+        edges = graph->vertices[current];
+        //keep track of edge weight of all non-tree vertices and the current tree vertex that they form an edge with
+        //if the edge weight of the edge connecting them is smaller than a known edge weight to the non-tree vertex
+        while (edges != NULL) {
+            dest_vertex = edges->to;
+            if (!is_tree_vertex[dest_vertex] && weights[dest_vertex] > edges->weight) {
+                parents[dest_vertex] = current;
+                weights[dest_vertex] = edges->weight;
+            }
+            edges = edges->next;
+        }
+
+        //select the next non tree vertex that has minimum edge weight
+        //we can be assured that it forms an edge with a tree vertex because if it didn't then it's edge weight would be the default INT32_MAX
+        //assuming every edge in the graph has weight less than INT32_MAX and isn't equally weighted this would imply that the current vertex
+        // had no outgoing edges
+        //either the current vertex is the first tree vertex or it isn't. if it is, this would imply that the graph is disconnected so no
+        //point in finding a spanning tree let alone a minimum one. if it isn't, this would imply that all previous tree vertices have
+        //outgoing edge weights of INT32_MAX which violates assumption.
+        min_weight = INT32_MAX;
+        for (int i = 1; i <= graph->num_vertices; i++) {
+            if (!is_tree_vertex[i] && weights[i] < min_weight) {
+                current = i;
+                min_weight = weights[i];
+            }
+        }
+
+    }
+    return total_weight;
+}
+
+
+int dijkstra(int_graph *graph, int start) {
+    int is_tree_vertex[MAX_VERTICES + 1];
+    int weights[MAX_VERTICES + 1];
+    int parents[MAX_VERTICES + 1];
+
+    int total_weight = 0;
+    int min_weight = 0;
+
+    int current;
+    int_edge *edges;
+    int dest_vertex;
+
+    for (int i = 1; i <= graph->num_vertices; i++) {
+        is_tree_vertex[i] = 0;
+        weights[i] = INT32_MAX;
+        parents[i] = -1;
+    }
+
+    current = start;
+    weights[current] = 0;
+
+    while (!is_tree_vertex[current]) {
+        is_tree_vertex[current] = 1;
+        printf("edge (%d, %d) is an edge in the tree minimizing sum of edges weights in the path from vertex %d to every other vertex in the tree\n", parents[current], current, start);
+        total_weight += min_weight;
+        edges = graph->vertices[current];
+        while (edges != NULL) {
+            dest_vertex = edges->to;
+            if (!is_tree_vertex[dest_vertex] && weights[dest_vertex] > weights[current] + edges->weight) {
+                parents[dest_vertex] = current;
+                weights[dest_vertex] = weights[current] + edges->weight;
+            }
+            edges = edges->next;
+        }
+
+        min_weight = INT32_MAX;
+        for (int i = 1; i <= graph->num_vertices; i++) {
+            if (!is_tree_vertex[i] && weights[i] < min_weight) {
+                current = i;
+                min_weight = weights[i];
+            }
+        }
+    }
+    return total_weight;
+}
+
+void setup_collect_edges(int_graph *graph) {
+    in_offset = 1;
+}
+
+void collect_edges(int from, int to, int weight) {
+    edge_pair pair = {.vertex_1 = from, .vertex_2 = to, .weight = weight};
+    edges[in_offset] = pair;
+    in_offset++;
+}
+
+edge_pair *edge_pairs_from(int_graph *graph, int start) {
+    setup_collect_edges(graph);
+    dfs_weighted(graph, start, do_nothing_1, collect_edges, do_nothing_1);
+    return edges;
+}
+
+edge_pair *edge_pairs_from_v1(int_graph *graph) {
+
+    int finished_outgoing[MAX_VERTICES + 1];
+    for (int i = 1; i <= graph->num_vertices; i++) {
+        finished_outgoing[i] = 0;
+    }
+
+    edge_pair *edge_pairs = calloc(graph->num_edges + 1, sizeof(edge_pair));
+    int in_offset = 1;
+
+    int_edge *edges;
+    int to;
+    int weight;
+
+    for (int i = 1; i <= graph->num_vertices; i++) {
+        edges = graph->vertices[i];
+        while (edges != NULL) {
+            to = edges->to;
+            weight = edges->weight;
+            if (!finished_outgoing[to]) {
+                edge_pair pair = {.vertex_1 = i, .vertex_2 = to, weight};
+                edge_pairs[in_offset] = pair;
+                in_offset++;
+            }
+        }
+        finished_outgoing[i] = 1;
+    }
+    return edge_pairs;
+}
+
+int compare_weight(const void *ep_1, const void *ep_2) {
+    edge_pair *pair_1 = (edge_pair *) ep_1;
+    edge_pair *pair_2 = (edge_pair *) ep_2;
+
+    if (pair_1->weight < pair_2->weight) {
+        return -1;
+    }
+    else if (pair_1->weight > pair_2->weight) {
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
+
+union_find *create_union_find() {
+    union_find *set = malloc(sizeof(union_find));
+    return set;
+}
+
+
+void setup_union_find(union_find *set, int num_partitions) {
+    for (int i = 1; i <= num_partitions; i++) {
+        set->parents[i] = i; //initially we start with every vertex having its own partition and being its own parent for num_partitions = num_vertices
+        set->component_partition_size[i] = 1;
+    }
+    set->num_partitions = num_partitions;
+
+}
+
+int find_partition(union_find *set, int of) {
+    if (set->parents[of] == of) {
+        return of;
+    }
+    else {
+        return find_partition(set, set->parents[of]);
+    }
+}
+
+void merge_partitions(union_find *set, int e1, int e2) {
+    int r1 = find_partition(set, e1);
+    int r2 = find_partition(set, e2);
+    if (r1 != r2) {
+        if (set->component_partition_size[r1] >= set->component_partition_size[r2]) {
+            set->component_partition_size[r1] += set->component_partition_size[r2];
+            set->parents[r2] = r1;
+        }
+        else {
+            set->component_partition_size[r2] += set->component_partition_size[r1];
+            set->parents[r1] = r2;
+        }
+    }
+}
+
+int same_component(union_find *set, int vertex_1, int vertex_2) {
+    int r1 = find_partition(set, vertex_1);
+    int r2 = find_partition(set, vertex_2);
+    return find_partition(set, vertex_1) == find_partition(set, vertex_2); 
+}
+
+/**
+this algorithm starts with a num_vertices partitions each forming its own component labeled with the key that is the same as
+the key of the vertex contained in the component. we can be assured each "component" is disjoint and has a minimal edge weight of 0
+each partition can be merged only if there is a subset of the num_edges edges connecting any two vertices in them. (this subset forms 
+a path between 2 vertices)
+since the edges are selected in order of increasing weight we can be assured that for each path prefix contained in one component the marginal
+increase in the weight of a path formed by the path prefix and the edge(s) needed to connect to a vertex in another component is minimal.
+since the original graph is connected (a given) we can be assured that by sweeping through all edges and merging partitions for edges formed by
+vertices between 2 disjoint components must yield a partition that contains all vertices because for any two vertices in a connected graph there
+must be a subset of num_edges edges that connects them. we can be assured that for any component that that makes up a partition the set of edges
+that were used to form that partition has minimal weight sum because the marginal edge weight increase of adding another vertex to the 
+partition is minimal (it was the first one in an ascending ordered list of edges by weight that could be used to merge them).
+therefore the partition containing all of the vertices is formed by disjoint partitions representing the minimal spanning tree for the subset
+of vertices contained in each partition and an edge with the smallest weight that can be used to connect a vertex of one component with another.
+therefore joining any two components maintains a partition that represents the minimal spanning tree for the union of the vertices in both 
+components.
+(Note the proof is shaky but is plausible enough for me.)
+the algorithm basically filters out the edges with the smallest edge weights that can be used to form a spanning tree of the original graph by
+first sorting them and then selecting edges using the predicate that the vertices that form the edges are not in the same component.
+quite nifty if you ask me.
+ */
+
+int kruskal(int_graph *graph) {
+    union_find *set = create_union_find();
+    setup_union_find(set, graph->num_vertices);
+    edge_pair *pairs = edge_pairs_from(graph, 1);
+    qsort(pairs, graph->num_edges, sizeof(edge_pair), compare_weight);
+    edge_pair pair;
+    int total_weight = 0;
+    for (int i = 1; i <= graph->num_edges; i++) {
+        pair = pairs[i];
+        if (!same_component(set, pair.vertex_1, pair.vertex_2)) {
+            printf("the edge (%d, %d) was added to the minimal spanning tree\n", pair.vertex_1, pair.vertex_2);
+            merge_partitions(set, pair.vertex_1, pair.vertex_2);
+            total_weight += pair.weight;
+        }
+    }
+    return total_weight;
+} 
+
+/**
+suppose v_1,v_2...v_n are the sequence of vertices forming the path with minimal sum of edge weight
+between v_1 and v_n. every path prefix must also have minimal sum of edge weights between it two endpoints because if it didn't
+we could also find a smaller edge weight sum by subbing in vertices
+that form edges with smaller edge weight. so we have a set of path prefixes with minimal sum of edge weights
+((v_1), (v_1, v_2), (v_1, v_2, v_3),.....,(v1,..,v_n-2,v_n-1), (v1,..,v_n_1, v_n)) where each successive prefix is equal to
+the previous prefix plus one additional vertex that forms an edge between the last entry in the previous sequence. for any two
+vertices the following algorithm will find the vertex through which the sum of the paths edge weights joining the two vertices will be as
+small as possible if it can, and update the corresponding entry in the matrix for those two vertices with that weight.
+this means v_2 will be found for (v_1, v_3), v_3 for (v_2,v_4),....v_(n - 1) for (v_(n - 2), v_n). so for ex. the entry for (v_1, v_3)
+will have value w(v_1, v_2) + w(v_2, v_3) so what about (v_1,v_4) the below algorithm will search for the vertex connecting them that minimizes
+the sum of edge weights and it will find v_3 with weight value w(v_1, v_2) + w(v_2, v_3). the entry for (v_1, v_4)
+will be updated to the value w(v_1, v_3) + w(v_3,v_4) =  w(v_1, v_2) + w(v_2, v_3) + w(v_3,v_4). I think this is how minimum edge weight for
+a path between any 2 vertices are propagated
+throughout the iterations of the algorithm. this is the best explanation I can think of and it's semi plausible
+(basically if a previous updated entry (i,j) is used to calculate w(i, j) + w(j, j') where w(i,j) = w(i,k) + w(k,j) then this
+is how we can use multiple "possible intermediate vertices" in the path from (i, j')) 
+ */
+
+void floyd(adjacency_matrix *matrix) {
+    int detour_weight;
+    for(int k = 1; k <= matrix->num_vertices; k++) {
+        for (int i = 1; i <= matrix->num_vertices; i++) {
+            for (int j = 1; j <= matrix->num_vertices; j++) {
+                detour_weight = matrix->edge_weights[i][k] + matrix->edge_weights[k][j];
+                if (detour_weight < matrix->edge_weights[i][j]) {
+                    matrix->edge_weights[i][j] = detour_weight;
+                }
+            }
+        }
+    }
+}
+
+
+
